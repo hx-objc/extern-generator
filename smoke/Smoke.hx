@@ -3,6 +3,8 @@ import appkit.*;
 import coregraphics.*;
 import objc.NSObject;
 import hxmc.I64;
+import hxmc.Span;
+import hxmc.ReadOnlySpan;
 import hxmc.objc.Selector;
 import hxmc.objc.ObjCClass;
 import hxmc.objc.Id;
@@ -133,7 +135,11 @@ class Smoke {
 		// (premultiplied last: kCGImageAlphaPremultipliedLast)
 		var ctx = CoreGraphics.CGBitmapContextCreate(Ptr.nil(), 4, 4, 8, 16, space, cast 1);
 		var path = CoreGraphics.CGPathCreateMutable();
-		path.CGPathAddRect(Ptr.nil(), new CGRect(new CGPoint(1, 1), new CGSize(2, 2)));
+		// (safe forms: a transform as a span of one, an out-parameter)
+		var identity = new CGAffineTransform(1, 0, 0, 1, 0, 0);
+		path.CGPathAddRect(ReadOnlySpan.of(identity), new CGRect(new CGPoint(1, 1), new CGSize(2, 2)));
+		var r = new CGRect(new CGPoint(0, 0), new CGSize(0, 0));
+		trace("rect", path.CGPathIsRect(Span.of(r)), r.size.width);
 		ctx.CGContextSetFillColorWithColor(CoreGraphics.CGColorCreateSRGB(1, 0, 0, 1));
 		ctx.CGContextAddPath(path);
 		ctx.CGContextFillPath();
@@ -143,7 +149,9 @@ class Smoke {
 		var px = ctx.CGBitmapContextGetData();
 		trace("drawn", elements, [for (i in 0...4) Mem.getU8(px, 20 + i)], [for (i in 0...4) Mem.getU8(px, i)], path.CGPathGetBoundingBox().size.width,
 			CoreGraphics.CGRectZero.size.width);
-		var font = CoreText.CTFontCreateWithName(ns("Helvetica"), 12, Ptr.nil());
+		var font = CoreText.CTFontCreateWithName("Helvetica", 12, ReadOnlySpan.of(identity));
+		var ch:hxmc.unsafe.UInt16 = 65, glyph:hxmc.unsafe.UInt16 = 0;
+		trace("glyph", font.CTFontGetGlyphsForCharacters(ReadOnlySpan.of(ch), Span.of(glyph), 1), glyph > 0);
 		trace("font", font.CTFontGetSize(), font.CTFontCopyFamilyName().UTF8String.toString(), font.pointSize);
 		trace("constants", AppKit.NSFontAttributeName.UTF8String.toString(),
 			Foundation.NSStringFromRect(new CGRect(new CGPoint(1, 2), new CGSize(3, 4))).UTF8String.toString());
