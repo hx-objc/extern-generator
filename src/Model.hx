@@ -57,7 +57,10 @@ class Origin {
 // dump names no platform)
 typedef Availability = {unavailable:Bool, deprecated:Null<String>};
 
-typedef Param = {name:String, type:CType};
+// extent: a C function's parameter declared as an array, its brackets as
+// spelled (`CGGlyph buffer[]`: "[]", `const CGFloat whitePoint[3]`: "[3]"),
+// which the parameter's type, a pointer, no longer tells
+typedef Param = {name:String, type:CType, ?extent:String};
 
 // a lightweight generic's parameter (`ObjectType`, bound by `id`)
 typedef TypeParamInfo = {name:String, bound:CType, covariant:Bool};

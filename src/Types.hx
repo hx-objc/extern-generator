@@ -209,9 +209,75 @@ class Types {
 	static var ATTRIBUTE_MACRO = ~/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g;
 
 	function withoutAttributeMacros(s:String):String {
+		s = withoutBounds(s);
 		if (!ATTRIBUTE_MACRO.match(s)) return s;
 		return ATTRIBUTE_MACRO.map(s, m -> r.typedefs.exists(m.matched(0)) ? m.matched(0) : "").trim();
 	}
+
+	// clang's bounds attributes as it spells them (-fexperimental-bounds-safety-attributes:
+	// `const UInt8 * __counted_by(length)`, `CGFloat *__single`): what Safe reads of them
+	static var BOUNDS = ~/__(counted_by|sized_by)(_or_null)?\(([^()]*)\)|__single\b|__null_terminated\b|__terminated_by\([^()]*\)|__ended_by\([^()]*\)/g;
+
+	public static function withoutBounds(s:String):String
+		return s.indexOf("__") < 0 ? s : BOUNDS.replace(s, "").trim();
+
+	// a pointer's bounds: its length in elements (`__counted_by(n)`) or in
+	// bytes (`__sized_by(n)`), one element (`__single`), or null
+	public static function bounds(t:CType):Null<{bytes:Bool, len:String}> {
+		var re = ~/__(counted_by|sized_by)(_or_null)?\(([^()]*)\)/;
+		if (re.match(t.qual)) return {bytes: re.matched(1) == "sized_by", len: re.matched(3).trim()};
+		if (~/__single\b/.match(t.qual)) return {bytes: false, len: "1"};
+		return null;
+	}
+
+	// what a pointer (one `*`) points to, mapped: `const CGFloat`, `CGRect`
+	// (readOnly when const); null for another type
+	public function pointee(t:CType):Null<{h:Null<HType>, why:String, readOnly:Bool}> {
+		var d = withoutAttributeMacros(t.desugared);
+		var star = d.lastIndexOf("*");
+		if (star < 0 || d.indexOf("(") >= 0 || d.indexOf("[") >= 0) return null;
+		for (w in words(d.substr(star + 1)))
+			if (QUALIFIERS.indexOf(w) < 0) return null;
+		var inner = d.substr(0, star).trim();
+		if (inner.indexOf("*") >= 0) return null;
+		var ws = words(inner);
+		var why = "";
+		var h = try map({qual: inner, desugared: inner}, "", true) catch (s:Skip) {
+			why = s.reason;
+			null;
+		}
+		return {h: h, why: why, readOnly: ws.indexOf("const") >= 0};
+	}
+
+	// a function pointer's type, `R (*)(A, B)` (as desugared): its parameters'
+	// and result's types as a message passes them, or null
+	public function fnPointer(t:CType):Null<{args:Array<HType>, ret:HType, nullable:Bool}> {
+		var d = withoutAttributeMacros(t.desugared);
+		var i = d.indexOf("(*");
+		if (i < 0) return null;
+		var close = matching(d, i);
+		if (close < 0) return null;
+		var rest = d.substr(close + 1).trim();
+		if (!rest.startsWith("(")) return null;
+		var pend = matching(rest, 0);
+		if (pend < 0 || rest.substr(pend + 1).trim() != "") return null;
+		var params = splitTop(rest.substring(1, pend));
+		if (params.length == 1 && params[0] == "void") params = [];
+		if (params.indexOf("...") >= 0) return null;
+		var args = [];
+		for (p in params) {
+			// (a parameter's name, as some typedefs spell it: `void *info`)
+			var h = try map({qual: p, desugared: p}, "") catch (_:Skip) try map({qual: dropName(p), desugared: dropName(p)}, "") catch (_:Skip) null;
+			if (h == null || h == HVoid || h.match(HFun(_, _, _))) return null;
+			args.push(h);
+		}
+		var ret = try map({qual: d.substr(0, i).trim(), desugared: d.substr(0, i).trim()}, "") catch (_:Skip) null;
+		if (ret == null || ret.match(HFun(_, _, _))) return null;
+		return {args: args, ret: ret, nullable: nullable(t.qual) || nullable(d.substring(i + 2, close))};
+	}
+
+	static function dropName(p:String):String
+		return ~/\s*\b[A-Za-z_][A-Za-z0-9_]*$/.replace(p, "");
 
 	// `self`: the class whose declaration this is (instancetype)
 	public function map(t:CType, self:String, inStruct = false, depth = 0):HType {
@@ -269,6 +335,8 @@ class Types {
 		var td = tag == "" && ["id", "Class", "SEL", "Protocol", "instancetype"].indexOf(name) < 0 ? r.typedefs.get(name) : null;
 		if (td != null && !gen.isClass(name)) {
 			if (stars == 1) return PTR;
+			// (a function pointer's typedef: tagId is a struct it names)
+			if (td.type.desugared.indexOf("(*") >= 0) return map({qual: t.qual, desugared: td.type.desugared}, self, inStruct, depth + 1);
 			if (td.tagId != null) {
 				var e = r.enumsById.get(td.tagId);
 				if (e != null) return gen.useEnum(e);

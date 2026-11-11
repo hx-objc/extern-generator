@@ -100,7 +100,8 @@ class Main {
 			sys.io.File.saveContent(tmp + "/sdk.m", imports.join(""));
 			json = tmp + "/ast.json";
 			text = tmp + "/ast.txt";
-			var cc = "clang -fsyntax-only -x objective-c" + sdk.clangFlags();
+			// (the bounds attributes spelled in the types: `__counted_by(n)`, Safe)
+			var cc = "clang -fsyntax-only -x objective-c -Xclang -fexperimental-bounds-safety-attributes" + sdk.clangFlags();
 			shell('$cc -Xclang -ast-dump=json $tmp/sdk.m > $json');
 			shell('$cc -Xclang -ast-dump -fno-color-diagnostics $tmp/sdk.m > $text');
 			macrosFile = tmp + "/macros.txt";
