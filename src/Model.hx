@@ -53,9 +53,10 @@ class Origin {
 	}
 }
 
-// availability on macOS (Avail reads it from clang's text dump: the JSON
-// dump names no platform)
-typedef Availability = {unavailable:Bool, deprecated:Null<String>};
+// availability on the platform (Avail reads it from clang's text dump: the
+// JSON dump names no platform); introduced: the versions the headers give
+// on each platform (macos, ios, maccatalyst), whichever is generated
+typedef Availability = {unavailable:Bool, deprecated:Null<String>, ?introduced:Map<String, String>};
 
 // extent: a C function's parameter declared as an array, its brackets as
 // spelled (`CGGlyph buffer[]`: "[]", `const CGFloat whitePoint[3]`: "[3]"),

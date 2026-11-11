@@ -15,6 +15,7 @@ typedef FieldRec = {
 	selMeta:Bool, // the selector does not follow from the names
 	lib:Null<Origin>, // a category's of another library
 	deprecated:Null<String>,
+	?available:Array<String>, // @:hxmc.available's platforms and versions
 	instancetype:Bool,
 	accessor:Bool,
 	isOverload:Bool, // one of several methods of its name
@@ -739,6 +740,7 @@ class Gen {
 			if (ident(cname) != cname) m.push(meta(":native", [str(cname)]));
 			if (o.lib != g.origin.lib) m.push(libMeta(o));
 			if (avail != null && avail.deprecated != null) m.push(deprecatedMeta(avail.deprecated));
+			m = m.concat(availMeta(avail));
 			return m;
 		}
 		for (k in funcsKept) group(k.f.origin);
@@ -974,11 +976,23 @@ class Gen {
 	static function deprecatedMeta(d:String):MetadataEntry
 		return meta(":deprecated");
 
+	// @:hxmc.available("macos 14.0", "ios 17.0", "maccatalyst 17.0"): hxmc
+	// checks a use against the deployment target
+	static function availableMeta(a:Array<String>):MetadataEntry
+		return meta(":hxmc.available", [for (x in a) str(x)]);
+
+	// the availability's metadata, none for nothing above hxmc's floors
+	static function availMeta(a:Null<Availability>):Metadata {
+		var v = Avail.available(a);
+		return v.length > 0 ? [availableMeta(v)] : [];
+	}
+
 	function methodField(f:FieldRec, ret:HType, isOverride:Bool, mod:Module):Field {
 		var m = [];
 		if (f.selMeta) m.push(meta(":selector", [str(f.sel)]));
 		if (f.lib != null) m.push(libMeta(f.lib));
 		if (f.deprecated != null) m.push(deprecatedMeta(f.deprecated));
+		if (f.available != null && f.available.length > 0) m.push(availableMeta(f.available));
 		var access = [];
 		var tps:Array<TypeParamDecl> = [];
 		if (f.isStatic) {
@@ -1097,13 +1111,14 @@ class Gen {
 					var getSel = getter != null ? getter : m.name;
 					var setSel = setter != null ? setter : "set" + m.name.charAt(0).toUpperCase() + m.name.substr(1) + ":";
 					var depr = m.avail != null ? m.avail.deprecated : null;
+					var avl = Avail.available(m.avail);
 					var getF:FieldRec = {
 						name: "get_" + pname, sel: getSel, isStatic: false, params: [], ret: h, selMeta: pname != m.name || getSel != m.name, lib: null,
-						deprecated: depr, instancetype: false, accessor: true, isOverload: false
+						deprecated: depr, available: avl, instancetype: false, accessor: true, isOverload: false
 					};
 					var setF:Null<FieldRec> = ro ? null : {
 						name: "set_" + pname, sel: setSel, isStatic: false, params: [{name: "v", t: h}], ret: h, selMeta: pname != m.name || setter != null,
-						lib: null, deprecated: depr, instancetype: false, accessor: true, isOverload: false
+						lib: null, deprecated: depr, available: avl, instancetype: false, accessor: true, isOverload: false
 					};
 					info.props.push({name: pname, objcName: m.name, h: h, readonly: ro, get: getF, set: setF, optional: m.optional, owner: name});
 					info.sels.set("@" + m.name, true);
@@ -1148,7 +1163,7 @@ class Gen {
 					var n = naming(sel, params, s -> info.names.exists(s) || s == first && !one && firsts.get(first) > 1);
 					var rec:FieldRec = {
 						name: n.name, sel: sel, isStatic: false, params: [for (i in 0...params.length) {name: n.params[i], t: sig.params[i]}],
-						ret: sig.ret, selMeta: n.selMeta, lib: null, deprecated: m.avail != null ? m.avail.deprecated : null,
+						ret: sig.ret, selMeta: n.selMeta, lib: null, deprecated: m.avail != null ? m.avail.deprecated : null, available: Avail.available(m.avail),
 						instancetype: Types.isInstancetype(retT), accessor: false, isOverload: false
 					};
 					info.methods.push({rec: rec, optional: m.optional, owner: name});
@@ -1172,6 +1187,7 @@ class Gen {
 			where = p.name + " (protocol) +" + m.name;
 			within(m, null);
 			var depr = m.avail != null ? m.avail.deprecated : null;
+			var avl = Avail.available(m.avail);
 			switch m.kind {
 				case KProperty(t, ro, getter, _):
 					var h = try attempt(() -> types.map(t, "NSObject")) catch (s:Skip) {
@@ -1187,7 +1203,7 @@ class Gen {
 					fields.push({name: pname, access: [AStatic], meta: [], pos: POS, kind: FProp("get", "never", argType(h, mod))});
 					fields.push(methodField({
 						name: "get_" + pname, sel: getSel, isStatic: true, params: [], ret: h, selMeta: pname != m.name || getSel != m.name, lib: null,
-						deprecated: depr, instancetype: false, accessor: true, isOverload: false
+						deprecated: depr, available: avl, instancetype: false, accessor: true, isOverload: false
 					}, h, false, mod));
 					names.set(pname, true);
 					names.set("get_" + pname, true);
@@ -1208,7 +1224,7 @@ class Gen {
 					var n = naming(m.name, params, s -> names.exists(s));
 					fields.push(methodField({
 						name: n.name, sel: m.name, isStatic: true, params: [for (i in 0...params.length) {name: n.params[i], t: sig.params[i]}],
-						ret: sig.ret, selMeta: n.selMeta, lib: null, deprecated: depr, instancetype: false, accessor: false, isOverload: false
+						ret: sig.ret, selMeta: n.selMeta, lib: null, deprecated: depr, available: avl, instancetype: false, accessor: false, isOverload: false
 					}, sig.ret, false, mod));
 					names.set(n.name, true);
 					tally(count, "protocol class methods");
@@ -1230,7 +1246,7 @@ class Gen {
 			fields.push(optional({
 				name: pp.name,
 				access: [],
-				meta: [],
+				meta: pp.get.available != null && pp.get.available.length > 0 ? [availableMeta(pp.get.available)] : [],
 				pos: POS,
 				kind: FProp("get", pp.readonly ? "never" : "set", argType(pp.h, mod))
 			}, pp.optional));
@@ -1250,6 +1266,7 @@ class Gen {
 		if (!Lambda.exists(p.protocols, q -> protos.exists(q))) parents.push({pack: ["hxmc", "objc"], name: "Id"});
 		var m = [meta(":hxmc.objc", [str(name)])];
 		if (p.avail != null && p.avail.deprecated != null) m.push(deprecatedMeta(p.avail.deprecated));
+		m = m.concat(availMeta(p.avail));
 		tally(count, "protocols");
 		return {
 			pack: [packOf(p.origin)],
@@ -1328,7 +1345,13 @@ class Gen {
 				tally(count, "protocol members redeclared under the protocol's names");
 			}
 			for (pp in addProps) {
-				fields.push({name: pp.name, access: [], meta: [], pos: POS, kind: FProp("get", pp.readonly ? "never" : "set", argType(pp.h, mod))});
+				fields.push({
+					name: pp.name,
+					access: [],
+					meta: pp.get.available != null && pp.get.available.length > 0 ? [availableMeta(pp.get.available)] : [],
+					pos: POS,
+					kind: FProp("get", pp.readonly ? "never" : "set", argType(pp.h, mod))
+				});
 				fields.push(methodField(pp.get, pp.h, false, mod));
 				if (pp.set != null) fields.push(methodField(pp.set, pp.h, false, mod));
 				st.names.set(pp.name, pp.get);
@@ -1470,6 +1493,7 @@ class Gen {
 					var getSel = getter != null ? getter : m.name;
 					var setSel = setter != null ? setter : "set" + m.name.charAt(0).toUpperCase() + m.name.substr(1) + ":";
 					var depr = m.avail != null ? m.avail.deprecated : null;
+					var avl = Avail.available(m.avail);
 					var lib = libOf(m);
 					if (m.isStatic) {
 						if (st.staticSels.exists(getSel)) continue;
@@ -1481,7 +1505,7 @@ class Gen {
 								// (Haxe allows no redefinition of the variable)
 								var f:FieldRec = {
 									name: "set_" + m.name, sel: setSel, isStatic: false, params: [{name: "v", t: h}], ret: HVoid, selMeta: true,
-									lib: lib, deprecated: depr, instancetype: false, accessor: true, isOverload: false
+									lib: lib, deprecated: depr, available: avl, instancetype: false, accessor: true, isOverload: false
 								};
 								fields.push(methodField(f, HVoid, false, mod));
 								st.names.set(f.name, f);
@@ -1504,14 +1528,15 @@ class Gen {
 					var renamed = pname != m.name;
 					var getF:FieldRec = {
 						name: "get_" + pname, sel: getSel, isStatic: m.isStatic, params: [], ret: h, selMeta: renamed || getter != null && getter != m.name,
-						lib: lib, deprecated: null, instancetype: false, accessor: true, isOverload: false
+						lib: lib, deprecated: null, available: avl, instancetype: false, accessor: true, isOverload: false
 					};
 					var setF:FieldRec = {
 						name: "set_" + pname, sel: setSel, isStatic: m.isStatic, params: [{name: "v", t: h}], ret: h,
-						selMeta: renamed || setter != null, lib: lib, deprecated: null, instancetype: false, accessor: true, isOverload: false
+						selMeta: renamed || setter != null, lib: lib, deprecated: null, available: avl, instancetype: false, accessor: true, isOverload: false
 					};
 					var vm = [];
 					if (depr != null) vm.push(deprecatedMeta(depr));
+					if (avl.length > 0) vm.push(availableMeta(avl));
 					fields.push({
 						name: pname,
 						access: m.isStatic ? [AStatic] : [],
@@ -1599,6 +1624,7 @@ class Gen {
 						continue;
 					}
 					var depr = m.avail != null ? m.avail.deprecated : null;
+					var avl = Avail.available(m.avail);
 					var rest = variadic ? restOf(sig.params[0]) : null;
 					if (variadic && rest == null) {
 						skip("variadic of mixed types");
@@ -1615,13 +1641,14 @@ class Gen {
 							f = Reflect.copy(inh);
 							f.ret = retype(sig.ret);
 							f.deprecated = depr;
+							f.available = avl;
 							redeclaredStatic.set(sel, true);
 						} else {
 							var o = overloaded(true, sel);
 							var n = naming(sel, params, s -> st.staticNames.exists(s) || claimed(true, s, sel), o);
 							f = {
 								name: n.name, sel: sel, isStatic: true, params: [for (i in 0...params.length) {name: n.params[i], t: sig.params[i]}],
-								ret: sig.ret, selMeta: n.selMeta, lib: libOf(m), deprecated: depr, instancetype: isIt, accessor: false, isOverload: o, rest: rest
+								ret: sig.ret, selMeta: n.selMeta, lib: libOf(m), deprecated: depr, available: avl, instancetype: isIt, accessor: false, isOverload: o, rest: rest
 							};
 						}
 						commit();
@@ -1642,6 +1669,7 @@ class Gen {
 								var f = Reflect.copy(st.initLike.get(sel));
 								f.ret = retype(sig.ret);
 								f.deprecated = depr;
+								f.available = avl;
 								commit();
 								fields.push(methodField(f, f.ret, true, mod));
 								st.initLike.set(sel, f);
@@ -1654,6 +1682,7 @@ class Gen {
 								var f = Reflect.copy(inh);
 								f.ret = retype(sig.ret);
 								f.deprecated = depr;
+								f.available = avl;
 								commit();
 								fields.push(methodField(f, f.ret, true, mod));
 								st.initLike.set(sel, f);
@@ -1669,7 +1698,7 @@ class Gen {
 						var n = naming(sel, params, s -> st.names.exists(s) || claimed(false, s, sel) || multi && descendantClaims(name, s, sel), o);
 						var f:FieldRec = {
 							name: n.name, sel: sel, isStatic: false, params: [for (i in 0...params.length) {name: n.params[i], t: sig.params[i]}],
-							ret: sig.ret, selMeta: n.selMeta, lib: libOf(m), deprecated: depr, instancetype: isIt, accessor: false, isOverload: o, rest: rest
+							ret: sig.ret, selMeta: n.selMeta, lib: libOf(m), deprecated: depr, available: avl, instancetype: isIt, accessor: false, isOverload: o, rest: rest
 						};
 						commit();
 						fields.push(methodField(f, f.ret, false, mod));
@@ -1692,6 +1721,7 @@ class Gen {
 			if (redeclaredStatic.exists(sel)) continue;
 			var f = Reflect.copy(st.factories.get(sel));
 			f.ret = retype(f.ret);
+			f.available = Avail.laterOf(f.available, Avail.available(c.avail));
 			if (st.staticNames.exists(f.name)) continue;
 			head.push(methodField(f, f.ret, false, mod));
 			st.staticNames.set(f.name, f);
@@ -1705,6 +1735,7 @@ class Gen {
 			if (redeclared.exists(sel)) continue;
 			var f = Reflect.copy(st.initLike.get(sel));
 			f.ret = retype(f.ret);
+			f.available = Avail.laterOf(f.available, Avail.available(c.avail));
 			tail.push(methodField(f, f.ret, true, mod));
 			st.initLike.set(sel, f);
 			st.names.set(f.name, f);
@@ -1741,6 +1772,7 @@ class Gen {
 		if (c.superName == null) impl.push({pack: ["hxmc", "objc"], name: "Id"});
 		var cm = [libMeta(c.origin), meta(":hxmc.objc")];
 		if (c.avail != null && c.avail.deprecated != null) cm.push(deprecatedMeta(c.avail.deprecated));
+		cm = cm.concat(availMeta(c.avail));
 		var sup = c.superName != null ? {
 			mod.use([packOf(classes.get(c.superName).origin)], c.superName);
 			{pack: [], name: c.superName, params: superArgs.length == 0 ? null : [for (a in superArgs) TPType(ctype(a, mod))]};
@@ -1879,7 +1911,7 @@ class Gen {
 				skip("enum constant unavailable on macOS");
 				continue;
 			}
-			var m = c.avail != null && c.avail.deprecated != null ? [deprecatedMeta(c.avail.deprecated)] : [];
+			var m = (c.avail != null && c.avail.deprecated != null ? [deprecatedMeta(c.avail.deprecated)] : []).concat(availMeta(c.avail));
 			var n = names.get(c.name);
 			if (wide && !fits32(c.value)) {
 				// no constant of 64 bits: a static final
@@ -1988,7 +2020,7 @@ class Gen {
 					}
 					if (seen.exists(c.name) || !valid(c.name)) continue;
 					seen.set(c.name, true);
-					var m = c.avail != null && c.avail.deprecated != null ? [deprecatedMeta(c.avail.deprecated)] : [];
+					var m = (c.avail != null && c.avail.deprecated != null ? [deprecatedMeta(c.avail.deprecated)] : []).concat(availMeta(c.avail));
 					var wide = under == Types.I64 && !fits32(c.value);
 					fields.push({
 						name: c.name,

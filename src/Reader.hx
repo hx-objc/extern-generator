@@ -198,7 +198,7 @@ class Reader {
 					mem.scope = scope;
 					mem.designated = designated;
 					mem.sentinel = sentinel;
-					mem.avail = avail.get(key + "|" + (inst ? "-" : "+") + m.name);
+					mem.avail = Avail.within(avail.get(key + "|" + (inst ? "-" : "+") + m.name), c.avail);
 					c.members.push(mem);
 				case "ObjCPropertyDecl":
 					var getter:Null<String> = m.getter != null ? m.getter.name : null;
@@ -210,7 +210,7 @@ class Reader {
 						KProperty(pt, m.readonly == true, getter, setter), o);
 					mem.optional = m.control == "optional";
 					mem.scope = scope;
-					mem.avail = avail.get(key + "|@" + m.name);
+					mem.avail = Avail.within(avail.get(key + "|@" + m.name), c.avail);
 					c.members.push(mem);
 					walkChildren(m);
 				case _:
@@ -374,7 +374,7 @@ class Reader {
 			var v = constant(c);
 			var value = v != null ? parseInt64(v) : next;
 			next = value + 1;
-			e.consts.push({name: c.name, value: value, avail: avail.get("K:" + c.name)});
+			e.consts.push({name: c.name, value: value, avail: Avail.within(avail.get("K:" + c.name), e.avail)});
 		}
 		enums.push(e);
 		enumsById.set(id, e);
