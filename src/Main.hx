@@ -11,6 +11,7 @@
 // outer framework's header. --frameworks all: every framework of the SDK
 // that imports and that the platform links (Sdk.allFrameworks). --check also
 // writes <out-dir>/ObjcExternsCheck.hx, a program naming every generated type.
+// raw.txt lists the parameters left raw memory (Ptr, CString) and why.
 // `slice` splits the three platforms' outputs into libraries (Slice).
 class Main {
 	static function stamp(what:String, t0:Float):Float {
@@ -153,6 +154,19 @@ class Main {
 				b.add("  " + x + "\n");
 		}
 		sys.io.File.saveContent(out + "/skipped.txt", b.toString());
+
+		// what stays raw memory (Ptr, CString: callers need @:hxmc.unsafe), by why
+		report("converted to safe forms", gen.safe.converted);
+		report("raw", gen.safe.raw);
+		var b = new StringBuf();
+		var ks = [for (k in gen.safe.raw.keys()) k];
+		ks.sort((a, b) -> gen.safe.raw.get(b) - gen.safe.raw.get(a));
+		for (k in ks) {
+			b.add('$k: ${gen.safe.raw.get(k)}\n');
+			for (x in gen.safe.rawDetails.get(k))
+				b.add("  " + x + "\n");
+		}
+		sys.io.File.saveContent(out + "/raw.txt", b.toString());
 
 		if (check) {
 			var b = new StringBuf();

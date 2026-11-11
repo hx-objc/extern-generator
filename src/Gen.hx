@@ -112,7 +112,7 @@ class Gen {
 	var cfTag = new Map<String, String>(); // class -> tag
 	var cfUsed = new Map<String, Bool>();
 	// the C functions and variables of the frameworks in scope kept
-	var funcsKept:Array<{f:CFunc, ret:HType, params:Array<{name:String, t:HType}>, retained:Bool}> = [];
+	var funcsKept:Array<{f:CFunc, ret:HType, params:Array<{name:String, t:HType}>, retained:Bool, passes:Array<Safe.Pass>, safe:Bool}> = [];
 	var varsKept:Array<{v:CVar, t:HType}> = [];
 
 	// what the type being mapped references (committed when its member is kept)
@@ -128,10 +128,15 @@ class Gen {
 	public var skipped = new Map<String, Int>();
 	public var count = new Map<String, Int>();
 
+	// the safe forms of C functions' parameters, what stays raw (raw.txt)
+	public var safe:Safe;
+
 	public function new(r:Reader, scope:Array<String>) {
 		this.r = r;
 		this.scope = scope;
 		types = new Types(r, this);
+		safe = new Safe(types);
+		safe.enumElement = enumUnderlying;
 	}
 
 	function tally(m:Map<String, Int>, k:String, n = 1)
@@ -671,7 +676,8 @@ class Gen {
 							retained = f.name.indexOf("Create") >= 0 || f.name.indexOf("Copy") >= 0;
 						}
 					}
-					{f: f, ret: ret, params: params, retained: retained};
+					var p = safe.plan(f, params, ret, where);
+					{f: f, ret: ret, params: params, retained: retained, passes: p.passes, safe: p.safe};
 				});
 				commit();
 				funcsKept.push(kept);
@@ -741,21 +747,38 @@ class Gen {
 			var g = group(k.f.origin);
 			var m = fieldMeta(k.f.name, k.f.origin, g, k.f.avail);
 			if (k.retained) m.push(meta(":hxmc.retained"));
+			if (k.safe) m.push(meta(":hxmc.safe"));
 			var pnames = [];
-			var args = [];
 			for (p in k.params) {
 				var n = ident(p.name);
 				while (pnames.indexOf(n) >= 0)
 					n += "_";
 				pnames.push(n);
-				args.push({name: n, type: p.t.match(HFun(_, _, _)) ? cParamType(p.t, g.mod) : argType(p.t, g.mod)});
 			}
+			var args = [];
+			for (i in 0...k.params.length) {
+				var p = k.params[i];
+				var t = switch k.passes[i] {
+					case PValue: p.t.match(HFun(_, _, _)) ? cParamType(p.t, g.mod) : argType(p.t, g.mod);
+					case PString:
+						var s = TPath({pack: [], name: "String"});
+						Types.nullable(k.f.params[i].type.qual) ? TPath({pack: [], name: "Null", params: [TPType(s)]}) : s;
+					case PCallback(a, r): TFunction([for (x in a) ctype(x, g.mod)], ctype(r, g.mod));
+					case PSpan(elem, readOnly, len):
+						var at = k.params.map(p -> p.name).indexOf(len);
+						m.push(meta(":hxmc.len", [name(pnames[i]), at >= 0 ? name(pnames[at]) : int(len)]));
+						g.mod.use(["hxmc"], readOnly ? "ReadOnlySpan" : "Span");
+						TPath({pack: [], name: readOnly ? "ReadOnlySpan" : "Span", params: [TPType(ctype(elem, g.mod))]});
+				}
+				args.push({name: pnames[i], type: t});
+			}
+			var ret = k.safe && k.ret == Types.CSTRING ? TPath({pack: [], name: "String"}) : cParamType(k.ret, g.mod);
 			g.fields.push({
 				name: ident(k.f.name),
 				access: [APublic, AStatic],
 				meta: m,
 				pos: POS,
-				kind: FFun({args: args, ret: cParamType(k.ret, g.mod), expr: null})
+				kind: FFun({args: args, ret: ret, expr: null})
 			});
 		}
 		for (k in varsKept) {
@@ -938,6 +961,9 @@ class Gen {
 	static function str(s:String):Expr
 		return {expr: EConst(CString(s, DoubleQuotes)), pos: POS};
 
+	static function name(s:String):Expr
+		return {expr: EConst(CIdent(s)), pos: POS};
+
 	static function int(s:String, ?suffix:String):Expr
 		return {expr: EConst(CInt(s, suffix)), pos: POS};
 
@@ -970,6 +996,8 @@ class Gen {
 		if (isOverride) access.push(AOverride);
 		if (f.isOverload) access.push(AOverload);
 		var args:Array<FunctionArg> = [for (p in f.params) {name: p.name, type: argType(p.t, mod)}];
+		for (p in f.params)
+			safe.message(p.t, p.name, where.split(" ")[0] + " " + f.sel);
 		// (NS_REQUIRES_NIL_TERMINATION: `...rest`, nil appended by hxmc)
 		if (f.rest != null) {
 			m.push(meta(":hxmc.nilTerminated"));
