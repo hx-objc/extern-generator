@@ -2,7 +2,7 @@
 // and C APIs for hxmc (its docs/interop.md, "Objective-C"), from clang's AST.
 //
 //   objc-extern-gen <out-dir> [--frameworks all|Foundation,AppKit,...] [--platform macos|ios|maccatalyst] [--sdk path] [--json ast.json --text ast.txt [--macros macros.txt]] [--keep-dumps] [--check]
-//   objc-extern-gen slice <out-dir> <macos-dir> <ios-dir> <maccatalyst-dir> [--sdk-versions text]
+//   objc-extern-gen slice <out-dir> <macos-dir> <ios-dir> <maccatalyst-dir> --version <x.y.z> [--sdk-versions text]
 //
 // Without --json/--text it runs clang (twice: the JSON dump for the
 // declarations, the text dump for their availability, which the JSON dump
@@ -46,7 +46,7 @@ class Main {
 	}
 
 	static final USAGE = "usage: objc-extern-gen <out-dir> [--frameworks all|Foundation,AppKit,...] [--platform macos|ios|maccatalyst] [--sdk path] [--json ast.json --text ast.txt [--macros macros.txt]] [--keep-dumps] [--check]\n"
-		+ "       objc-extern-gen slice <out-dir> <macos-dir> <ios-dir> <maccatalyst-dir> [--sdk-versions text]";
+		+ "       objc-extern-gen slice <out-dir> <macos-dir> <ios-dir> <maccatalyst-dir> --version <x.y.z> [--sdk-versions text]";
 
 	static function main() {
 		var args = Sys.args();
