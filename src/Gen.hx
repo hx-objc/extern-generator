@@ -2026,7 +2026,10 @@ class Gen {
 					for (n in ["objc", "Strings", "toNSString"])
 						fn = {expr: EField(fn, n), pos: POS};
 					var call = {expr: ECall(fn, [str(s)]), pos: POS};
-					field([AFinal], ctype(HClass("NSString", false, []), mod), {expr: ECast(call, null), pos: POS});
+					// (Strings.toNSString's id is a Ptr: the conversion is trusted)
+					var f = field([AFinal], ctype(HClass("NSString", false, []), mod), {expr: ECast(call, null), pos: POS});
+					f.meta = [meta(":hxmc.unsafe", [{expr: EConst(CIdent("gc")), pos: POS}])];
+					f;
 				}
 		}
 	}
@@ -2037,8 +2040,10 @@ class Gen {
 		var fields:Array<Field> = [];
 		var args:Array<FunctionArg> = [];
 		var body:Array<Expr> = [];
+		var raw = false;
 		for (f in rec.fields) {
 			var h = types.map(f.type, "", true);
+			if (h == Types.PTR || h == Types.CSTRING) raw = true;
 			var t = ctype(h, mod);
 			var n = ident(f.name);
 			fields.push({name: n, access: [APublic], pos: POS, kind: FVar(t, null)});
@@ -2048,9 +2053,11 @@ class Gen {
 				pos: POS
 			});
 		}
+		// (a field of raw memory: storing it is no use of it, its callers' values are)
 		fields.push({
 			name: "new",
 			access: [APublic, AInline],
+			meta: raw ? [meta(":hxmc.unsafe")] : [],
 			pos: POS,
 			kind: FFun({args: args, ret: null, expr: {expr: EBlock(body), pos: POS}})
 		});
@@ -2072,7 +2079,7 @@ class Gen {
 		"NSStringArg" => "// where an NSString is passed: one, or a Haxe String (an autoreleased copy:\n"
 			+ "// Cocoa copies the strings it keeps)\n"
 			+ "@:forward abstract NSStringArg(NSString) from NSString to NSString {\n"
-			+ "\t@:from static inline function ofString(s:String):NSStringArg\n"
+			+ "\t@:from @:hxmc.unsafe(gc) static inline function ofString(s:String):NSStringArg\n"
 			+ "\t\treturn cast hxmc.objc.Strings.toNSString(s);\n"
 			+ "}\n",
 		"NSNumberArg" => "// where an NSNumber is passed: one, or a Haxe Int, Float or Bool\n"
