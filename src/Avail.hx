@@ -23,7 +23,65 @@ class Avail {
 	public static function merge(a:Null<Availability>, b:Null<Availability>):Null<Availability> {
 		if (a == null) return b;
 		if (b == null) return a;
-		return {unavailable: a.unavailable || b.unavailable, deprecated: a.deprecated != null ? a.deprecated : b.deprecated};
+		return {unavailable: a.unavailable || b.unavailable, deprecated: a.deprecated != null ? a.deprecated : b.deprecated, introduced: later(a.introduced, b.introduced)};
+	}
+
+	// the platforms of @:hxmc.available, in its order
+	public static final PLATFORMS = ["macos", "ios", "maccatalyst"];
+
+	// the oldest systems hxmc's programs run on (its LinkMachO: macOS 10.15 on
+	// x86-64, 11.0 on arm64; iOS and Mac Catalyst 15.0): what they all have is
+	// no availability
+	static final FLOORS = ["macos" => "10.15", "ios" => "15.0", "maccatalyst" => "15.0"];
+
+	public static function compare(a:String, b:String):Int {
+		var x = a.split("."), y = b.split(".");
+		for (i in 0...(x.length > y.length ? x.length : y.length)) {
+			var p = i < x.length ? Std.parseInt(x[i]) : 0, q = i < y.length ? Std.parseInt(y[i]) : 0;
+			if (p != q) return p < q ? -1 : 1;
+		}
+		return 0;
+	}
+
+	// each platform's later version
+	public static function later(a:Null<Map<String, String>>, b:Null<Map<String, String>>):Null<Map<String, String>> {
+		if (a == null) return b;
+		if (b == null) return a;
+		var r = a.copy();
+		for (p => v in b)
+			if (!r.exists(p) || compare(v, r.get(p)) > 0) r.set(p, v);
+		return r;
+	}
+
+	// a member's availability with its container's introduced versions (the
+	// later ones): the output says it of each declaration
+	public static function within(a:Null<Availability>, container:Null<Availability>):Null<Availability> {
+		if (container == null || container.introduced == null) return a;
+		if (a == null) return {unavailable: false, deprecated: null, introduced: container.introduced};
+		return {unavailable: a.unavailable, deprecated: a.deprecated, introduced: later(a.introduced, container.introduced)};
+	}
+
+	// two lists of @:hxmc.available's arguments as one: each platform's later
+	// version (a redeclaration in a class introduced after the method)
+	public static function laterOf(a:Null<Array<String>>, b:Array<String>):Array<String> {
+		var v = new Map<String, String>();
+		for (x in (a == null ? [] : a).concat(b)) {
+			var w = x.split(" ");
+			if (!v.exists(w[0]) || compare(w[1], v.get(w[0])) > 0) v.set(w[0], w[1]);
+		}
+		return [for (p in PLATFORMS) if (v.exists(p)) p + " " + v.get(p)];
+	}
+
+	// @:hxmc.available's platforms and versions ("macos 14.0", "ios 17.0",
+	// "maccatalyst 17.0"; Gen.condition writes macos >= 14.0): the platforms
+	// whose version is above hxmc's floor, Mac Catalyst's iOS's where the
+	// headers give none (as clang infers it), so that a declaration's text
+	// is the same on every platform
+	public static function available(a:Null<Availability>):Array<String> {
+		if (a == null || a.introduced == null) return [];
+		var v = a.introduced.copy();
+		if (!v.exists("maccatalyst") && v.exists("ios")) v.set("maccatalyst", v.get("ios"));
+		return [for (p in PLATFORMS) if (v.exists(p) && compare(v.get(p), FLOORS.get(p)) > 0) p + " " + v.get(p)];
 	}
 
 	function add(key:String, a:Availability)
@@ -83,9 +141,18 @@ class Avail {
 
 	// an attribute's meaning on the platform, or null
 	static function attr(kind:String, args:String):Null<Availability> {
-		var t = tokens(args);
+		var t = tokens(args), implicit = false;
 		while (t.length > 0 && (t[0] == "Inherited" || t[0] == "Implicit"))
-			t.shift();
+			if (t.shift() == "Implicit") implicit = true;
+		// (any platform's introduction; not one clang inferred: Mac Catalyst's
+		// on its own target only, available makes it on every one)
+		var introduced = kind == "AvailabilityAttr" && t.length >= 2 && !implicit && PLATFORMS.contains(t[0]) && t[1] != "0" ? [t[0] => t[1]] : null;
+		var a = platformAttr(kind, t);
+		if (introduced == null) return a;
+		return a == null ? {unavailable: false, deprecated: null, introduced: introduced} : {unavailable: a.unavailable, deprecated: a.deprecated, introduced: introduced};
+	}
+
+	static function platformAttr(kind:String, t:Array<String>):Null<Availability> {
 		return switch kind {
 			case "UnavailableAttr":
 				{unavailable: true, deprecated: null};

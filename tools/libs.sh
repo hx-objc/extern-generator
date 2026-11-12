@@ -1,10 +1,16 @@
 #!/bin/sh
-# tools/libs.sh <out-dir>: the externs of the whole SDKs, for macOS, iOS and Mac
-# Catalyst (<out-dir>/<platform>), and the libraries they make (<out-dir>/libs).
+# tools/libs.sh <out-dir> [patch]: the externs of the whole SDKs, for macOS, iOS
+# and Mac Catalyst (<out-dir>/<platform>), and the libraries they make
+# (<out-dir>/libs), versioned by the Xcode they come from and the patch (0 by
+# default; above 0 for the generator's own changes): Xcode 27.2's are 27.2.0,
+# the tag they pin each other at (tools/publish.sh makes it).
 # With HXMC set (an hxmc that has the Objective-C interop), each platform's
 # output is type-checked too.
 set -e
 out=${1:-out/sdk}
+patch=${2:-0}
+xcode=$(xcodebuild -version | head -1 | awk '{print $2}')
+version="$(echo "$xcode" | awk -F. '{print $1 "." ($2 == "" ? 0 : $2)}').$patch"
 here=$(cd "$(dirname "$0")/.." && pwd)
 gen="$here/bin/objc-extern-gen"
 ulimit -s unlimited 2>/dev/null || true
@@ -24,5 +30,6 @@ if [ -n "$HXMC" ]; then
 		echo "$p: type-checked"
 	done
 fi
-versions="Xcode $(xcodebuild -version | head -1 | awk '{print $2}'), macOS SDK $(xcrun --sdk macosx --show-sdk-version), iOS SDK $(xcrun --sdk iphoneos --show-sdk-version)"
-"$gen" slice "$out/libs" "$out/macos" "$out/ios" "$out/maccatalyst" --sdk-versions "$versions"
+versions="Xcode $xcode, macOS SDK $(xcrun --sdk macosx --show-sdk-version), iOS SDK $(xcrun --sdk iphoneos --show-sdk-version)"
+"$gen" slice "$out/libs" "$out/macos" "$out/ios" "$out/maccatalyst" --version "$version" --sdk-versions "$versions"
+echo "libraries $version: $out/libs"

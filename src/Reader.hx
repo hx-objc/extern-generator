@@ -198,7 +198,7 @@ class Reader {
 					mem.scope = scope;
 					mem.designated = designated;
 					mem.sentinel = sentinel;
-					mem.avail = avail.get(key + "|" + (inst ? "-" : "+") + m.name);
+					mem.avail = Avail.within(avail.get(key + "|" + (inst ? "-" : "+") + m.name), c.avail);
 					c.members.push(mem);
 				case "ObjCPropertyDecl":
 					var getter:Null<String> = m.getter != null ? m.getter.name : null;
@@ -210,7 +210,7 @@ class Reader {
 						KProperty(pt, m.readonly == true, getter, setter), o);
 					mem.optional = m.control == "optional";
 					mem.scope = scope;
-					mem.avail = avail.get(key + "|@" + m.name);
+					mem.avail = Avail.within(avail.get(key + "|@" + m.name), c.avail);
 					c.members.push(mem);
 					walkChildren(m);
 				case _:
@@ -374,7 +374,7 @@ class Reader {
 			var v = constant(c);
 			var value = v != null ? parseInt64(v) : next;
 			next = value + 1;
-			e.consts.push({name: c.name, value: value, avail: avail.get("K:" + c.name)});
+			e.consts.push({name: c.name, value: value, avail: Avail.within(avail.get("K:" + c.name), e.avail)});
 		}
 		enums.push(e);
 		enumsById.set(id, e);
@@ -437,10 +437,10 @@ class Reader {
 		var params = [];
 		if (inner != null)
 			for (c in inner) {
-				locate(c);
+				var at = locate(c);
 				switch (c.kind : String) {
 					case "ParmVarDecl":
-						params.push({name: c.name != null ? c.name : "p" + params.length, type: ctype(c.type)});
+						params.push({name: c.name != null ? c.name : "p" + params.length, type: ctype(c.type), extent: c.name != null ? extent(at.file, c.loc) : null});
 						var pi:Array<Dynamic> = c.inner;
 						if (pi != null && Lambda.exists(pi, a -> a.kind == "CFConsumedAttr" || a.kind == "NSConsumedAttr")) f.consumes = true;
 					case "CFAuditedTransferAttr": f.audited = true;
@@ -451,6 +451,26 @@ class Reader {
 				walkChildren(c);
 			}
 		if (f.params.length == 0) f.params = params;
+	}
+
+	// the brackets after a parameter's name in its header (`buffer[]`), or
+	// null (read there, never written out; its bytes: offsets count bytes)
+	var bytes = new Map<String, Null<haxe.io.Bytes>>();
+
+	function extent(f:String, loc:Dynamic):Null<String> {
+		var l:Dynamic = loc.expansionLoc != null ? loc.expansionLoc : loc;
+		if (f == "" || l.offset == null || l.tokLen == null) return null;
+		if (!bytes.exists(f)) bytes.set(f, try sys.io.File.getBytes(f) catch (_:Dynamic) null);
+		var src = bytes.get(f);
+		if (src == null) return null;
+		var i:Int = l.offset + l.tokLen;
+		while (i < src.length && (src.get(i) == " ".code || src.get(i) == "\t".code || src.get(i) == "\n".code))
+			i++;
+		if (i >= src.length || src.get(i) != "[".code) return null;
+		var close = i;
+		while (close < src.length && src.get(close) != "]".code)
+			close++;
+		return close >= src.length ? null : ~/\s+/g.replace(src.getString(i, close + 1 - i), " ");
 	}
 
 	// an `extern` variable; `const` at its top level (`NSString *const`,
