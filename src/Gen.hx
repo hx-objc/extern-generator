@@ -976,10 +976,19 @@ class Gen {
 	static function deprecatedMeta(d:String):MetadataEntry
 		return meta(":deprecated");
 
-	// @:hxmc.available("macos 14.0", "ios 17.0", "maccatalyst 17.0"): hxmc
-	// checks a use against the deployment target
+	// @:hxmc.available(macos >= 14.0, ios >= 17.0, maccatalyst >= 17.0), the
+	// conditions as #if writes them: hxmc checks a use against the
+	// deployment target
 	static function availableMeta(a:Array<String>):MetadataEntry
-		return meta(":hxmc.available", [for (x in a) str(x)]);
+		return meta(":hxmc.available", [for (x in a) condition(x)]);
+
+	// "macos 14.0": macos >= 14.0 (with a patch level, which no literal
+	// writes: macos >= version("10.15.4"))
+	static function condition(s:String):Expr {
+		var w = s.split(" "), parts = w[1].split(".").length;
+		var v = parts > 2 ? {expr: ECall(name("version"), [str(w[1])]), pos: POS} : parts == 2 ? {expr: EConst(CFloat(w[1])), pos: POS} : int(w[1]);
+		return {expr: EBinop(OpGte, name(w[0]), v), pos: POS};
+	}
 
 	// the availability's metadata, none for nothing above hxmc's floors
 	static function availMeta(a:Null<Availability>):Metadata {

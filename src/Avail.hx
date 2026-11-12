@@ -72,10 +72,11 @@ class Avail {
 		return [for (p in PLATFORMS) if (v.exists(p)) p + " " + v.get(p)];
 	}
 
-	// @:hxmc.available's arguments ("macos 14.0", "ios 17.0", "maccatalyst
-	// 17.0"): the platforms whose version is above hxmc's floor, Mac
-	// Catalyst's iOS's where the headers give none (as clang infers it), so
-	// that a declaration's text is the same on every platform
+	// @:hxmc.available's platforms and versions ("macos 14.0", "ios 17.0",
+	// "maccatalyst 17.0"; Gen.condition writes macos >= 14.0): the platforms
+	// whose version is above hxmc's floor, Mac Catalyst's iOS's where the
+	// headers give none (as clang infers it), so that a declaration's text
+	// is the same on every platform
 	public static function available(a:Null<Availability>):Array<String> {
 		if (a == null || a.introduced == null) return [];
 		var v = a.introduced.copy();
