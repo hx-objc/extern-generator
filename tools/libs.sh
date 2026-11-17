@@ -4,8 +4,8 @@
 # (<out-dir>/libs), versioned by the Xcode they come from and the patch (0 by
 # default; above 0 for the generator's own changes): Xcode 27.2's are 27.2.0,
 # the tag they pin each other at (tools/publish.sh makes it).
-# With HXMC set (an hxmc that has the Objective-C interop), each platform's
-# output is type-checked too.
+# With HXMC set (an hxmc that has the Objective-C interop: node_modules/.bin/haxe),
+# each platform's output is type-checked too, under -D hxmc.strict.
 set -e
 out=${1:-out/sdk}
 patch=${2:-0}
@@ -25,7 +25,7 @@ for pid in $pids; do wait $pid || { echo "failed: see $out/*.log"; exit 1; }; do
 if [ -n "$HXMC" ]; then
 	for p in macos ios maccatalyst; do
 		case $p in macos) t=macos-arm64;; ios) t=ios-arm64;; *) t=macos-catalyst-arm64;; esac
-		"$HXMC" -D hxmc.target=$t -cp "$out/$p" -main ObjcExternsCheck --no-output > "$out/$p.check" 2>&1 \
+		"$HXMC" -D hxmc.target=$t -D hxmc.strict --custom-target hxmc -cp "$out/$p" -main ObjcExternsCheck --no-output > "$out/$p.check" 2>&1 \
 			|| { echo "$p: type errors, see $out/$p.check"; exit 1; }
 		echo "$p: type-checked"
 	done
