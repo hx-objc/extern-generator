@@ -138,6 +138,12 @@ class Slice {
 		}
 		var sorted = [for (k in keys.keys()) k];
 		sorted.sort(Reflect.compare);
+		// (each platform's @:hxmc.available from its own SDK: Unify)
+		for (k in sorted) {
+			var u = Unify.texts(PLATFORMS, [for (p in PLATFORMS) if (mods.get(p).exists(k)) p => mods.get(p).get(k)]);
+			for (p => t in u)
+				mods.get(p).set(k, t);
+		}
 		var legacy = legacyOf(mods.get("macos"), k -> {
 			var t = mods.get("macos").get(k);
 			mods.get("ios").get(k) != t && mods.get("maccatalyst").get(k) != t;
